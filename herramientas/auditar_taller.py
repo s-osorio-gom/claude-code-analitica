@@ -14,12 +14,16 @@ Qué revisa
     estructura    cada proyecto con sus cuatro carpetas y su LEEME.md
     rutas         ninguna ruta absoluta escrita a mano en el código
     sintaxis      todo script de Python compila
-    secretos      ninguna credencial guardada dentro del taller
+    secretos      ninguna credencial guardada dentro del taller, incluida .claude/
     enlaces       ningún enlace simbólico roto
     nombres       nada que Drive o Windows rechacen, ni "final2" ni "copia"
     indice        el índice existe y nombra a todos los proyectos
     claude        settings.json es JSON válido y sus reglas de permiso se
-                  consultan; agentes y comandos con frontmatter válido
+                  consultan; agentes y comandos con frontmatter válido y
+                  agentes sin name repetido
+
+Sale con 0 si todo lo crítico pasa, 1 si algo crítico falla y 2 si la ruta no
+es una carpeta.
 
 Qué NO revisa: si los NÚMEROS están bien. Eso lo hace el control de cada
 proyecto, recalculándolos desde la fuente por otro camino.
