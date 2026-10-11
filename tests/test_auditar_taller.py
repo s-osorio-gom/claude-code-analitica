@@ -167,6 +167,21 @@ class TallerRoto(Base):
         cfg.write_text(json.dumps(datos), encoding="utf-8")
         self.assertFalla("Configuración de Claude Code válida")
 
+    def test_reglas_notebookedit_y_multiedit_que_claude_code_ignora(self):
+        cfg = self.taller / "area" / ".claude" / "settings.json"
+        original = cfg.read_text(encoding="utf-8")
+        for regla in ("NotebookEdit(./**/2_trabajo/**)", "MultiEdit(./**/3_entregable/**)"):
+            with self.subTest(regla=regla):
+                datos = json.loads(original)
+                datos["permissions"]["ask"].append(regla)
+                cfg.write_text(json.dumps(datos), encoding="utf-8")
+                self.assertFalla("Configuración de Claude Code válida")
+
+    def test_sin_archivo_indice(self):
+        # Sin EMPIECE_AQUI.md, INDICE.md ni README.md es falla, no solo aviso.
+        (self.taller / "EMPIECE_AQUI.md").unlink()
+        self.assertFalla("El índice existe y nombra los proyectos")
+
     def test_regla_glob_que_claude_code_ignora(self):
         cfg = self.taller / "area" / ".claude" / "settings.json"
         datos = json.loads(cfg.read_text(encoding="utf-8"))
