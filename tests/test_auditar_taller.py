@@ -175,6 +175,18 @@ class TallerRoto(Base):
             "---\nname: corto\ntools: Read\n---\nHola\n", encoding="utf-8")
         self.assertFalla("Configuración de Claude Code válida")
 
+    def test_agente_roto_en_subcarpeta(self):
+        sub = self.taller / "area" / ".claude" / "agents" / "finanzas"
+        sub.mkdir()
+        (sub / "suelto.md").write_text("Sin cabecera.\n", encoding="utf-8")
+        self.assertFalla("Configuración de Claude Code válida")
+
+    def test_dos_agentes_con_el_mismo_name(self):
+        agentes = self.taller / "area" / ".claude" / "agents"
+        shutil.copy(agentes / "data-engineer.md", agentes / "data-engineer-v2.md")
+        self.assertFalla("Configuración de Claude Code válida")
+        self.assertIn("repetido", correr(self.taller).stdout)
+
     def test_comando_con_frontmatter_sin_cerrar(self):
         (self.taller / "area" / ".claude" / "commands" / "abierto.md").write_text(
             "---\ndescription: nunca cierra\n\nHaz algo\n", encoding="utf-8")

@@ -146,8 +146,11 @@ def revisar_claude(raiz: Path) -> tuple[int, list[str]]:
                         hallazgos.append(f"{rel} — {lista}: '{r}' nunca se aplica; "
                                          f"use {en_su_lugar}(...) en su lugar")
 
+        # Claude Code recorre agents/ y commands/ con subcarpetas, y el name
+        # identifica al agente: si dos archivos lo repiten, uno tapa al otro.
+        nombres: dict[str, Path] = {}
         for tipo in ("agents", "commands"):
-            for md in sorted((cl / tipo).glob("*.md")):
+            for md in sorted((cl / tipo).rglob("*.md")):
                 revisados += 1
                 rel = md.relative_to(raiz)
                 try:
@@ -170,6 +173,11 @@ def revisar_claude(raiz: Path) -> tuple[int, list[str]]:
                 elif not NOMBRE_AGENTE.match(fm["name"]):
                     hallazgos.append(f"{rel} — name '{fm['name']}' debe ir en "
                                      "minúsculas y guiones")
+                elif fm["name"] in nombres:
+                    hallazgos.append(f"{rel} — name '{fm['name']}' repetido; ya lo usa "
+                                     f"{nombres[fm['name']].relative_to(raiz)}")
+                else:
+                    nombres[fm["name"]] = md
     return revisados, hallazgos
 
 
