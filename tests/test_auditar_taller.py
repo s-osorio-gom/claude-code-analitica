@@ -139,6 +139,17 @@ class TallerRoto(Base):
             "{}", encoding="utf-8")
         self.assertFalla("Sin credenciales dentro del taller")
 
+    def test_nombres_de_agente_o_hook_no_son_credenciales(self):
+        cl = self.taller / "area" / ".claude"
+        (cl / "agents" / "secret-scanner.md").write_text(
+            "---\nname: secret-scanner\ndescription: Busca secretos en el código\n"
+            "tools: Read, Grep\n---\nRevisa.\n", encoding="utf-8")
+        (cl / "hooks").mkdir()
+        (cl / "hooks" / "check_password.py").write_text("import sys\n", encoding="utf-8")
+        e = estados(self.taller)
+        self.assertEqual(e["Sin credenciales dentro del taller"], "OK", e)
+        self.assertEqual(correr(self.taller).returncode, 0)
+
     def test_worktrees_de_claude_no_se_recorren(self):
         wt = self.taller / "area" / ".claude" / "worktrees" / "rama" / "4_tecnico"
         wt.mkdir(parents=True)

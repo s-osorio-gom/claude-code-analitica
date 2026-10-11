@@ -48,6 +48,12 @@ RUTA_ABSOLUTA = re.compile(r"""["'](?:/Users/|/home/|[A-Za-z]:[\\/]|/mnt/[a-z]/)
 SECRETO_NOMBRE = re.compile(
     r"(^\.env$|\.env\.|credential|secret|_token|password|\.pem$|\.p12$|\.pfx$"
     r"|^service[_-]account.*\.json$|\.key$)", re.IGNORECASE)
+# Dentro de .claude/ los nombres de agentes, comandos y hooks hablan de secretos
+# («secret-scanner.md», «check_password.py») sin serlo: ahí solo cuentan los
+# nombres de archivos de credenciales reales. El contenido se revisa entero.
+SECRETO_ARCHIVO = re.compile(
+    r"(^\.env$|^\.env\.|^\.?credentials?(\.\w+)?$|^service[_-]account.*\.json$"
+    r"|\.pem$|\.p12$|\.pfx$|\.key$|^id_(rsa|dsa|ecdsa|ed25519)$)", re.IGNORECASE)
 SECRETO_CONTENIDO = re.compile(
     r"(-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}"
     r"|sk-ant-[A-Za-z0-9_-]{20,})")
@@ -294,8 +300,9 @@ def auditar(raiz: Path) -> Informe:
 
     # ── secretos ────────────────────────────────────────────────────────────
     claude = [p for p in archivos_claude(arbol) if seguro(lambda p=p: not p.is_symlink())]
-    por_nombre = [str(p.relative_to(raiz)) for p in todos + claude
+    por_nombre = [str(p.relative_to(raiz)) for p in todos
                   if SECRETO_NOMBRE.search(p.name) and seguro(p.is_file)]
+    por_nombre += [str(p.relative_to(raiz)) for p in claude if SECRETO_ARCHIVO.search(p.name)]
     for p in claude:
         if seguro(lambda p=p: p.stat().st_size <= TOPE_BYTES):
             try:
