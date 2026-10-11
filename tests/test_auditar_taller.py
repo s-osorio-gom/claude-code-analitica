@@ -148,6 +148,23 @@ class TallerRoto(Base):
         cfg.write_text(json.dumps(datos), encoding="utf-8")
         self.assertFalla("Configuración de Claude Code válida")
 
+    def test_regla_glob_que_claude_code_ignora(self):
+        cfg = self.taller / "area" / ".claude" / "settings.json"
+        datos = json.loads(cfg.read_text(encoding="utf-8"))
+        datos["permissions"]["deny"].append("Glob(./**/credentials/**)")
+        cfg.write_text(json.dumps(datos), encoding="utf-8")
+        self.assertFalla("Configuración de Claude Code válida")
+        r = correr(self.taller)
+        self.assertIn("use Read(...)", r.stdout)
+
+    def test_herramienta_sin_ruta_no_es_falla(self):
+        # "Write" o "Glob" solos sí se aplican, a nivel de herramienta.
+        cfg = self.taller / "area" / ".claude" / "settings.json"
+        datos = json.loads(cfg.read_text(encoding="utf-8"))
+        datos["permissions"]["deny"] += ["Write", "Glob"]
+        cfg.write_text(json.dumps(datos), encoding="utf-8")
+        self.assertEqual(estados(self.taller)["Configuración de Claude Code válida"], "OK")
+
     def test_agente_sin_frontmatter(self):
         (self.taller / "area" / ".claude" / "agents" / "suelto.md").write_text(
             "Eres un agente sin cabecera.\n", encoding="utf-8")

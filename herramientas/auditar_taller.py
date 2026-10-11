@@ -53,8 +53,10 @@ RESERVADOS_WIN = ({"CON", "PRN", "AUX", "NUL"}
                   | {f"LPT{i}" for i in range(1, 10)})
 
 # Claude Code solo consulta reglas de ruta escritas como Read(...) o Edit(...).
-# Una regla Write(ruta) se acepta pero nunca se aplica: falla en silencio.
-REGLA_IGNORADA = re.compile(r"^(Write|NotebookEdit|MultiEdit)\(.+\)$")
+# Una regla Write(ruta), NotebookEdit(ruta), MultiEdit(ruta) o Glob(ruta) se
+# acepta pero nunca se aplica: falla en silencio. Sin ruta (solo el nombre de la
+# herramienta) sí se aplica, así que no se marca.
+REGLA_IGNORADA = re.compile(r"^(Write|NotebookEdit|MultiEdit|Glob)\(.+\)$")
 NOMBRE_AGENTE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
@@ -138,9 +140,11 @@ def revisar_claude(raiz: Path) -> tuple[int, list[str]]:
                     hallazgos.append(f"{rel} — permissions.{lista} debe ser una lista de textos")
                     continue
                 for r in reglas:
-                    if REGLA_IGNORADA.match(r):
+                    m = REGLA_IGNORADA.match(r)
+                    if m:
+                        en_su_lugar = "Read" if m.group(1) == "Glob" else "Edit"
                         hallazgos.append(f"{rel} — {lista}: '{r}' nunca se aplica; "
-                                         "use Edit(...) en su lugar")
+                                         f"use {en_su_lugar}(...) en su lugar")
 
         for tipo in ("agents", "commands"):
             for md in sorted((cl / tipo).glob("*.md")):
