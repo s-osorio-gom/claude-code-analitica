@@ -124,19 +124,24 @@ def seguro(prueba, defecto=False):
         return defecto
 
 
-def archivos_claude(arbol: Arbol) -> list[Path]:
-    """Archivos de cada .claude/ del taller, para buscar credenciales: ahí vive
-    settings.local.json, cuyo bloque `env` es donde suele terminar una API key.
-    Se salta .claude/worktrees/, que son copias del propio repositorio."""
-    salida = []
+def archivos_claude(arbol: Arbol) -> tuple[list[Path], list[Path]]:
+    """(configuración, worktrees): los archivos de cada .claude/ del taller, para
+    buscar credenciales.
+
+    Configuración es settings.local.json —cuyo bloque `env` es donde suele
+    terminar una API key—, agentes, comandos, hooks… Worktrees es
+    .claude/worktrees/<nombre>/: copias de trabajo del repositorio que viven
+    dentro del taller y se sincronizan con él, y a las que `.worktreeinclude`
+    copia archivos ignorados por git como `.env`. Lo que decide es el último
+    .claude/ de la ruta: el .claude/ de un worktree vuelve a ser configuración."""
+    config, worktrees = [], []
     for p in arbol.archivos:
         partes = arbol.rel(p)
         if ".claude" not in partes:
             continue
-        resto = partes[partes.index(".claude") + 1:]
-        if resto[0] != "worktrees":
-            salida.append(p)
-    return salida
+        k = len(partes) - 1 - partes[::-1].index(".claude")
+        (worktrees if partes[k + 1] == "worktrees" else config).append(p)
+    return config, worktrees
 
 
 def hallar_proyectos(arbol: Arbol) -> tuple[Path | None, list[Path]]:
@@ -299,11 +304,17 @@ def auditar(raiz: Path) -> Informe:
               len(py), no_compilan)
 
     # ── secretos ────────────────────────────────────────────────────────────
-    claude = [p for p in archivos_claude(arbol) if seguro(lambda p=p: not p.is_symlink())]
-    por_nombre = [str(p.relative_to(raiz)) for p in todos
+    # En los worktrees rigen las reglas del resto del taller; en la configuración,
+    # solo nombres de credenciales reales, pero todo el contenido. Un enlace
+    # simbólico se sigue: Drive lo convierte en copia del archivo al que apunta.
+    config, worktrees = archivos_claude(arbol)
+    por_nombre = [str(p.relative_to(raiz)) for p in todos + worktrees
                   if SECRETO_NOMBRE.search(p.name) and seguro(p.is_file)]
-    por_nombre += [str(p.relative_to(raiz)) for p in claude if SECRETO_ARCHIVO.search(p.name)]
-    for p in claude:
+    por_nombre += [str(p.relative_to(raiz)) for p in config
+                   if SECRETO_ARCHIVO.search(p.name) and seguro(p.is_file)]
+    revisar_contenido = config + [p for p in worktrees if p.suffix.lower() in CODIGO
+                                  and seguro(lambda p=p: not p.is_symlink())]
+    for p in revisar_contenido:
         if seguro(lambda p=p: p.stat().st_size <= TOPE_BYTES):
             try:
                 texto = p.read_text(encoding="utf-8", errors="ignore")
@@ -312,7 +323,7 @@ def auditar(raiz: Path) -> Informe:
             if SECRETO_CONTENIDO.search(texto):
                 con_secreto.append(str(p.relative_to(raiz)))
     secretos = sorted(set(por_nombre + con_secreto))
-    total = len(todos) + len(claude)
+    total = len(todos) + len(config) + len(worktrees)
     inf.anota("Sin credenciales dentro del taller",
               total - len(secretos), total, secretos)
 

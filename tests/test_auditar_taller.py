@@ -150,11 +150,30 @@ class TallerRoto(Base):
         self.assertEqual(e["Sin credenciales dentro del taller"], "OK", e)
         self.assertEqual(correr(self.taller).returncode, 0)
 
-    def test_worktrees_de_claude_no_se_recorren(self):
+    def test_credencial_en_un_worktree_de_claude(self):
+        # .claude/worktrees/<x>/ es una copia de trabajo dentro del taller, y
+        # .worktreeinclude copia ahí la .env. (Antes una prueba exigía «OK» aquí.)
         wt = self.taller / "area" / ".claude" / "worktrees" / "rama" / "4_tecnico"
         wt.mkdir(parents=True)
         (wt / ".env").write_text("X=1\n", encoding="utf-8")
-        self.assertEqual(estados(self.taller)["Sin credenciales dentro del taller"], "OK")
+        self.assertFalla("Sin credenciales dentro del taller")
+
+    @unittest.skipIf(os.name == "nt", "enlaces simbólicos requieren permisos en Windows")
+    def test_credenciales_detras_de_un_enlace_en_claude(self):
+        fuera = self.tmp / "fuera"
+        fuera.mkdir()
+        (fuera / "local.json").write_text(
+            json.dumps({"env": {"ANTHROPIC_API_KEY": "sk-ant-" + "y" * 40}}), encoding="utf-8")
+        (fuera / "cred.json").write_text("{}", encoding="utf-8")
+        cl = self.taller / "area" / ".claude"
+        for enlace, destino in (("settings.local.json", "local.json"),
+                                ("credentials.json", "cred.json")):
+            with self.subTest(enlace=enlace):
+                (cl / enlace).symlink_to(fuera / destino)
+                self.assertFalla("Sin credenciales dentro del taller")
+                self.assertIn(f"area/.claude/{enlace}",
+                              correr(self.taller).stdout.replace("\\", "/"))
+                (cl / enlace).unlink()
 
     @unittest.skipIf(os.name == "nt", "enlaces simbólicos requieren permisos en Windows")
     def test_enlace_roto(self):
