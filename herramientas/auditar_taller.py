@@ -248,8 +248,9 @@ def auditar(raiz: Path) -> Informe:
         if p.suffix.lower() == ".py":
             try:
                 compile(texto, str(p), "exec")
-            except SyntaxError as e:
-                no_compilan.append(f"{p.relative_to(raiz)}:{e.lineno} {e.msg}")
+            except SyntaxError as e:  # desde 3.12 los bytes nulos llegan aquí, sin línea
+                linea = f":{e.lineno}" if e.lineno else " —"
+                no_compilan.append(f"{p.relative_to(raiz)}{linea} {e.msg}")
             except ValueError as e:  # p. ej. bytes nulos: un binario con extensión .py
                 no_compilan.append(f"{p.relative_to(raiz)} — {e}")
 

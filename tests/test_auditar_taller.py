@@ -109,6 +109,7 @@ class TallerRoto(Base):
     def test_binario_con_extension_py_no_rompe_el_auditor(self):
         (self.proyecto() / "4_tecnico" / "b.py").write_bytes(b"\x00\xff\xfe\x89PNG")
         self.assertFalla("Scripts de Python que compilan")
+        self.assertNotIn("b.py:None", correr(self.taller).stdout)
 
     def test_archivo_no_utf8_no_rompe_el_auditor(self):
         (self.proyecto() / "4_tecnico" / "latin1.py").write_bytes(
