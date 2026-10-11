@@ -1,5 +1,7 @@
 # Taller de analítica con Claude Code
 
+[![auditar](https://github.com/s-osorio-gom/claude-code-analitica/actions/workflows/auditar.yml/badge.svg)](https://github.com/s-osorio-gom/claude-code-analitica/actions/workflows/auditar.yml)
+
 Plantilla y **auditor** para trabajar analítica de negocio con Claude Code sin
 que el taller se degrade con el tiempo: dos niveles de `CLAUDE.md`, siete
 subagentes con herramientas restringidas por diseño, cinco comandos, una
