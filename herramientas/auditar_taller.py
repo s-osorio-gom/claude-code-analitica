@@ -187,7 +187,9 @@ def auditar(raiz: Path) -> Informe:
     _padre, proyectos = hallar_proyectos(raiz)
 
     # ── estructura ──────────────────────────────────────────────────────────
-    faltantes = []
+    # Sin ningún proyecto, casi seguro la ruta es otra: que no pase en verde.
+    faltantes = [] if proyectos else [
+        "ningún proyecto: no hay carpetas con 1_datos_originales/ — ¿es la raíz del taller?"]
     for pr in proyectos:
         falta = [c for c in CARPETAS if not (pr / c).is_dir()]
         if falta:

@@ -210,6 +210,14 @@ class Avisos(Base):
 
 
 class Entrada(unittest.TestCase):
+    def test_carpeta_sin_proyectos_no_pasa(self):
+        # Una ruta equivocada (otro repositorio con README.md) no debe dar verde.
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "README.md").write_text("# otro repo\n", encoding="utf-8")
+            r = correr(Path(d))
+            self.assertEqual(r.returncode, 1, r.stdout)
+            self.assertIn("ningún proyecto", r.stdout)
+
     def test_ruta_inexistente(self):
         r = correr(Path(tempfile.gettempdir()) / "no-existe-este-taller-123")
         self.assertEqual(r.returncode, 2)
