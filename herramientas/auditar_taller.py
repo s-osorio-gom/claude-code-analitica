@@ -245,7 +245,7 @@ def auditar(raiz: Path) -> Informe:
         if falta:
             faltantes.append(f"{pr.name}: falta {', '.join(falta)}")
     inf.anota("Proyectos con la estructura completa",
-              len(proyectos) - len(faltantes), len(proyectos), faltantes)
+              max(len(proyectos) - len(faltantes), 0), len(proyectos), faltantes)
 
     sin_leeme = [pr.name for pr in proyectos
                  if not any((pr / n) in arbol.es_archivo for n in ("LEEME.md", "README.md"))]

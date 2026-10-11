@@ -293,6 +293,8 @@ class Entrada(unittest.TestCase):
             r = correr(Path(d))
             self.assertEqual(r.returncode, 1, r.stdout)
             self.assertIn("ningún proyecto", r.stdout)
+            fila = next(x for x in r.stdout.splitlines() if "estructura completa" in x)
+            self.assertTrue(fila.rstrip().endswith("0 / 0"), fila)
 
     def test_ruta_inexistente(self):
         r = correr(Path(tempfile.gettempdir()) / "no-existe-este-taller-123")
