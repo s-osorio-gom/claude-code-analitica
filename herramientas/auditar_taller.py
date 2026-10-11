@@ -43,7 +43,8 @@ SECRETO_NOMBRE = re.compile(
     r"(^\.env$|\.env\.|credential|secret|_token|password|\.pem$|\.p12$|\.pfx$"
     r"|^service[_-]account.*\.json$|\.key$)", re.IGNORECASE)
 SECRETO_CONTENIDO = re.compile(
-    r"(-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,})")
+    r"(-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}"
+    r"|sk-ant-[A-Za-z0-9_-]{20,})")
 NOMBRE_FLOJO = re.compile(
     r"(?:^|[ _\-(])(final\d*|copia\d*|nuevo|ahora_?si|definitivo|ultimo|v\d+ ?final)"
     r"(?:$|[ _\-.)])", re.IGNORECASE)
@@ -83,6 +84,19 @@ def archivos(raiz: Path):
     for p in raiz.rglob("*"):
         if not ignorado(p, raiz):
             yield p
+
+
+def archivos_claude(raiz: Path):
+    """Archivos de cada .claude/ del taller, para buscar credenciales: ahí vive
+    settings.local.json, cuyo bloque `env` es donde suele terminar una API key.
+    Se salta .claude/worktrees/, que son copias del propio repositorio."""
+    for cl in raiz.rglob(".claude"):
+        if not cl.is_dir() or any(x in IGNORAR for x in cl.relative_to(raiz).parts[:-1]):
+            continue
+        for p in cl.rglob("*"):
+            partes = p.relative_to(cl).parts
+            if partes[0] != "worktrees" and not any(x in IGNORAR for x in partes):
+                yield p
 
 
 def hallar_proyectos(raiz: Path) -> tuple[Path | None, list[Path]]:
@@ -242,11 +256,21 @@ def auditar(raiz: Path) -> Informe:
               len(py), no_compilan)
 
     # ── secretos ────────────────────────────────────────────────────────────
-    por_nombre = [str(p.relative_to(raiz)) for p in todos
+    claude = [p for p in archivos_claude(raiz) if p.is_file() and not p.is_symlink()]
+    por_nombre = [str(p.relative_to(raiz)) for p in todos + claude
                   if p.is_file() and SECRETO_NOMBRE.search(p.name)]
+    for p in claude:
+        if p.stat().st_size <= TOPE_BYTES:
+            try:
+                texto = p.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            if SECRETO_CONTENIDO.search(texto):
+                con_secreto.append(str(p.relative_to(raiz)))
     secretos = sorted(set(por_nombre + con_secreto))
+    total = len(todos) + len(claude)
     inf.anota("Sin credenciales dentro del taller",
-              len(todos) - len(secretos), len(todos), secretos)
+              total - len(secretos), total, secretos)
 
     # ── enlaces ─────────────────────────────────────────────────────────────
     enlaces = [p for p in todos if p.is_symlink()]

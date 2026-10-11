@@ -126,6 +126,24 @@ class TallerRoto(Base):
             f"K = '''{llave}'''\n", encoding="utf-8")
         self.assertFalla("Sin credenciales dentro del taller")
 
+    def test_api_key_en_settings_local_de_claude(self):
+        # .claude/ no entra a los demás chequeos, pero sí al de credenciales.
+        llave = "sk-ant-" + "api03-" + "x" * 40
+        (self.taller / "area" / ".claude" / "settings.local.json").write_text(
+            json.dumps({"env": {"ANTHROPIC_API_KEY": llave}}), encoding="utf-8")
+        self.assertFalla("Sin credenciales dentro del taller")
+
+    def test_credencial_por_nombre_dentro_de_claude(self):
+        (self.taller / "area" / ".claude" / "credentials.json").write_text(
+            "{}", encoding="utf-8")
+        self.assertFalla("Sin credenciales dentro del taller")
+
+    def test_worktrees_de_claude_no_se_recorren(self):
+        wt = self.taller / "area" / ".claude" / "worktrees" / "rama" / "4_tecnico"
+        wt.mkdir(parents=True)
+        (wt / ".env").write_text("X=1\n", encoding="utf-8")
+        self.assertEqual(estados(self.taller)["Sin credenciales dentro del taller"], "OK")
+
     @unittest.skipIf(os.name == "nt", "enlaces simbólicos requieren permisos en Windows")
     def test_enlace_roto(self):
         (self.proyecto() / "1_datos_originales" / "mgn").symlink_to("no_existe")
