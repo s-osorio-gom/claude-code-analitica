@@ -130,13 +130,27 @@ Código de salida: 1. El aviso del índice no cambia el código; la ruta absolut
 Busca los proyectos como las carpetas que contienen `1_datos_originales/` y toma
 como carpeta de proyectos la que tenga más. Ignora `.git`, `node_modules`,
 `__pycache__`, `.venv`, `venv`, `.ipynb_checkpoints` y `.pytest_cache`. `.claude/`
-solo entra a los chequeos de credenciales y de configuración (sin
-`.claude/worktrees/`, que son copias del repositorio). No lee el contenido de
+solo entra a dos chequeos:
+
+- **Configuración**: `settings*.json`, `agents/` y `commands/` (con subcarpetas).
+- **Credenciales**: en la configuración de `.claude/` se revisa todo el
+  contenido, pero por nombre solo cuentan archivos de credenciales reales
+  (`.env`, `credentials.*`, `*.pem`…), para que un agente `secret-scanner.md` o
+  un hook `check_password.py` no sean falsos positivos. `.claude/worktrees/` son
+  copias de trabajo dentro del taller (y `.worktreeinclude` copia ahí la
+  `.env`): se revisan con las reglas de credenciales del resto del taller. Los
+  enlaces simbólicos se siguen.
+
+No lee el contenido de
 archivos de más de 2 MB: no cuentan en el total de código, aunque su nombre sí se
 revisa.
 
-La regla de `name` en minúsculas y guiones es una convención de esta plantilla,
-más estricta que Claude Code (que solo prohíbe `:` y más de 256 caracteres).
+Sobre los agentes, el auditor es más estricto que Claude Code a propósito.
+Claude Code se salta en silencio (solo lo anota en el log de `--debug`) un
+agente cuyo `name` empieza con `-`, contiene `:` o pasa de 256 caracteres, y
+trata como documentación un `.md` sin `name`; el auditor marca todo eso como
+falla. Exigir `name` en minúsculas y guiones es convención de esta plantilla.
+Las comillas YAML alrededor del valor (`name: "data-engineer"`) se aceptan.
 
 ### Que el auditor corra solo
 

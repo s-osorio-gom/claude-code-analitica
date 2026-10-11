@@ -245,6 +245,19 @@ class TallerRoto(Base):
         (sub / "suelto.md").write_text("Sin cabecera.\n", encoding="utf-8")
         self.assertFalla("Configuración de Claude Code válida")
 
+    def test_name_entre_comillas_es_valido(self):
+        agentes = self.taller / "area" / ".claude" / "agents"
+        (agentes / "citado.md").write_text(
+            '---\nname: "data-engineer-b"\ndescription: \'Con comillas\'\n---\nHola\n',
+            encoding="utf-8")
+        self.assertEqual(estados(self.taller)["Configuración de Claude Code válida"], "OK")
+
+    def test_name_que_empieza_con_guion(self):
+        # Claude Code se salta ese agente (solo lo dice en el log de --debug).
+        (self.taller / "area" / ".claude" / "agents" / "guion.md").write_text(
+            "---\nname: -guion\ndescription: x\n---\nHola\n", encoding="utf-8")
+        self.assertFalla("Configuración de Claude Code válida")
+
     def test_dos_agentes_con_el_mismo_name(self):
         agentes = self.taller / "area" / ".claude" / "agents"
         shutil.copy(agentes / "data-engineer.md", agentes / "data-engineer-v2.md")

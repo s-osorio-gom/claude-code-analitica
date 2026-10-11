@@ -169,7 +169,11 @@ def frontmatter(texto: str) -> dict[str, str] | None:
             return claves
         m = re.match(r"^([A-Za-z][\w-]*):\s*(.*)$", linea)
         if m:
-            claves[m.group(1)] = m.group(2).strip()
+            valor = m.group(2).strip()
+            # name: "data-engineer" es YAML válido: las comillas no son parte del valor.
+            if len(valor) >= 2 and valor[0] == valor[-1] and valor[0] in "'\"":
+                valor = valor[1:-1]
+            claves[m.group(1)] = valor
     return None
 
 
