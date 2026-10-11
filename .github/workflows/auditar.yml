@@ -1,0 +1,32 @@
+name: auditar
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  plantilla:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: La plantilla cumple sus propias reglas
+        run: python3 herramientas/auditar_taller.py plantilla
+      - name: Las herramientas compilan
+        run: python3 -m compileall -q herramientas tests
+      - name: Pruebas (incluye un taller roto a propósito que debe fallar)
+        run: python3 -m unittest discover -s tests -v
+      - name: Lint
+        run: |
+          python3 -m pip install ruff==0.17.0
+          ruff check .

@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./**/.env)",
+      "Read(./**/.env.*)",
+      "Read(./**/credentials/**)",
+      "Read(./**/*password*)",
+      "Read(./**/*secret*)",
+      "Read(./**/*token*)",
+      "Bash(rm -rf *)",
+      "Bash(curl *)",
+      "Bash(wget *)"
+    ],
+    "ask": [
+      "Edit(./**/3_entregable/**)",
+      "Edit(./**/1_datos_originales/**)",
+      "Edit(./**/legacy_*/**)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(pip *)",
+      "Bash(pip3 *)"
+    ]
+  }
+}
