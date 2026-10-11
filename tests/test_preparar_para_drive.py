@@ -101,6 +101,20 @@ class ConfigInvalida(Base):
     def test_ruta_que_se_sale_del_taller(self):
         self.assertInvalida({"enlaces": [{"origen": "a", "destinos": ["../../fuera"]}]})
 
+    @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                     "chmod no quita la lectura en Windows ni a root")
+    def test_config_ilegible(self):
+        self.config({"enlaces": []})
+        cfg = self.taller / "enlaces.json"
+        cfg.chmod(0)
+        try:
+            r = correr(self.taller, "revisar")
+        finally:
+            cfg.chmod(0o644)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("no se puede leer", r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+
     def test_sin_config_no_es_error(self):
         self.assertEqual(correr(self.taller, "revisar").returncode, 0)
 

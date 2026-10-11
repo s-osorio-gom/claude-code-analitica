@@ -340,8 +340,11 @@ def auditar(raiz: Path) -> Informe:
     if indice is None:
         inf.anota("El índice existe y nombra los proyectos", 0, 1,
                   ["no hay EMPIECE_AQUI.md, INDICE.md ni README.md en la raíz"])
+    elif (texto := seguro(lambda: indice.read_text(encoding="utf-8", errors="ignore"),
+                          None)) is None:
+        inf.anota("El índice existe y nombra los proyectos", 0, 1,
+                  [f"{indice.name} no se puede leer (¿permisos?)"])
     else:
-        texto = indice.read_text(encoding="utf-8", errors="ignore")
         sin_listar = [pr.name for pr in proyectos if pr.name not in texto]
         inf.anota("El índice existe y nombra los proyectos",
                   len(proyectos) - len(sin_listar), len(proyectos),

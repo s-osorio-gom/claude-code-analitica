@@ -92,6 +92,8 @@ def cargar(raiz: Path) -> list[dict]:
         return []
     try:
         datos = json.loads(cfg.read_text(encoding="utf-8"))
+    except OSError as e:
+        raise ConfigInvalida(f"{cfg.name} no se puede leer: {e.strerror}") from e
     except (UnicodeDecodeError, json.JSONDecodeError) as e:
         raise ConfigInvalida(f"{cfg.name} no es JSON válido en UTF-8: {e}") from e
     enlaces = datos.get("enlaces", []) if isinstance(datos, dict) else None

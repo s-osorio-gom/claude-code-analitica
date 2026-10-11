@@ -255,6 +255,13 @@ class Ilegible(Base):
         self.assertIn("area/.claude — sin permiso de lectura", r.stdout.replace("\\", "/"))
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
+    def test_indice_ilegible_es_falla_sin_traza(self):
+        self.cerrar(self.taller / "EMPIECE_AQUI.md")
+        r = correr(self.taller)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("EMPIECE_AQUI.md no se puede leer", r.stdout)
+
     def test_proyecto_ilegible(self):
         self.cerrar(self.proyecto("cerrado"))
         r = correr(self.taller)
