@@ -63,6 +63,18 @@ class Ciclo(Base):
         self.assertTrue(enlace.is_symlink())
         self.assertFalse((destino / "LEER_falta_MGN.txt").exists())
 
+    def test_archivo_donde_va_el_enlace_es_problema(self):
+        (self.taller / "a" / "MGN").mkdir(parents=True)
+        (self.taller / "b").mkdir()
+        (self.taller / "b" / "MGN").write_text("no soy un enlace", encoding="utf-8")
+        self.config({"enlaces": [{"origen": "a/MGN", "destinos": ["b"]}]})
+        self.assertEqual(correr(self.taller, "revisar").returncode, 1)
+        r = correr(self.taller, "bajar")
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("un ARCHIVO", r.stdout)
+        self.assertEqual((self.taller / "b" / "MGN").read_text(encoding="utf-8"),
+                         "no soy un enlace", "bajar no debe borrar lo que encuentra")
+
     def test_bajar_sin_origen_falla(self):
         (self.taller / "b").mkdir()
         self.config({"enlaces": [{"origen": "a/MGN", "destinos": ["b"]}]})

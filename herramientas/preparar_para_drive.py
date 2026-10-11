@@ -143,15 +143,16 @@ def modo_revisar(raiz: Path, enlaces: list[dict]) -> int:
     problemas = 0
     for _nombre, origen, _carpeta, enlace in pares(raiz, enlaces):
         rel = enlace.relative_to(raiz)
+        # Sin enlace (retirado por `subir`) es el estado normal en la nube.
         if enlace.is_symlink():
-            estado = "enlace OK" if enlace.exists() else "ENLACE ROTO"
+            estado, mal = ("enlace OK", False) if enlace.exists() else ("ENLACE ROTO", True)
         elif enlace.is_dir():
-            estado = "CARPETA REAL — el sincronizador la copió"
+            estado, mal = "CARPETA REAL — el sincronizador la copió", True
         elif enlace.exists():
-            estado = "existe pero no es carpeta ni enlace"
+            estado, mal = "ARCHIVO donde va el enlace — bajar falla", True
         else:
-            estado = "no está (retirado o nunca creado)"
-        problemas += estado[0].isupper() and estado != "enlace OK"
+            estado, mal = "no está (retirado o nunca creado)", False
+        problemas += mal
         print(f"    {estado:<42} {rel}")
         if not origen.exists():
             print(f"    {'FALTA EL ORIGEN':<42} {origen.relative_to(raiz)}")
@@ -199,8 +200,10 @@ def modo_bajar(raiz: Path, enlaces: list[dict]) -> int:
             print(f"    OMITIDO  {rel} (la carpeta destino no existe aquí)")
             continue
         if enlace.exists() and not enlace.is_symlink():
-            print(f"    CUIDADO  {rel} es una CARPETA REAL, no un enlace.")
-            print( "             El sincronizador la copió. Bórrela a mano y repita.")
+            que = "una CARPETA REAL" if enlace.is_dir() else "un ARCHIVO"
+            print(f"    CUIDADO  {rel} es {que}, no un enlace.")
+            print( "             Probablemente el sincronizador la copió. Revísela, bórrela"
+                   " a mano y repita.")
             fallos += 1
             continue
         if enlace.is_symlink():
