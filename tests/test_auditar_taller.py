@@ -227,6 +227,41 @@ class TallerRoto(Base):
         self.assertFalla("Configuración de Claude Code válida")
 
 
+SIN_PERMISOS = os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0)
+
+
+@unittest.skipIf(SIN_PERMISOS, "chmod no quita la lectura en Windows ni a root")
+class Ilegible(Base):
+    """Lo que no se puede leer no rompe el auditor ni se calla: avisa."""
+
+    def setUp(self):
+        super().setUp()
+        self.cerradas: list[Path] = []
+
+    def tearDown(self):
+        for p in self.cerradas:  # devolver el permiso antes de borrar la carpeta temporal
+            p.chmod(0o755)
+        super().tearDown()
+
+    def cerrar(self, p: Path):
+        p.chmod(0)
+        self.cerradas.append(p)
+
+    def test_carpeta_claude_ilegible(self):
+        self.cerrar(self.taller / "area" / ".claude")
+        r = correr(self.taller)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertEqual(estados(self.taller)["Carpetas que se pudieron leer"], "AVISO")
+        self.assertIn("area/.claude — sin permiso de lectura", r.stdout.replace("\\", "/"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_proyecto_ilegible(self):
+        self.cerrar(self.proyecto("cerrado"))
+        r = correr(self.taller)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertIn("cerrado — sin permiso de lectura", r.stdout)
+
+
 class Avisos(Base):
     """Lo no crítico avisa pero no cambia el código de salida."""
 

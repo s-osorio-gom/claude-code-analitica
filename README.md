@@ -64,6 +64,7 @@ Salida real de esos pasos (solo cambia la ruta de la primera línea):
   [  OK  ] Nombres sin 'final', 'copia' ni 'nuevo'        18 / 18
   [  OK  ] El índice existe y nombra los proyectos          1 / 1
   [  OK  ] Configuración de Claude Code válida            13 / 13
+  [  OK  ] Carpetas que se pudieron leer                  12 / 12
   ────────────────────────────────────────────────────────────────
 
   0 chequeos críticos en falla
@@ -123,6 +124,7 @@ Código de salida: 1. El aviso del índice no cambia el código; la ruta absolut
 | Nombres | nada que Windows o Drive rechacen (`: * ?`, espacio o punto final, `CON`, rutas > 240) | sí |
 | Nombres flojos | `final`, `copia`, `nuevo`, `definitivo`… | aviso |
 | Índice | `EMPIECE_AQUI.md` (o `INDICE.md`, `README.md`) existe y nombra cada proyecto | falta el archivo: sí · falta un proyecto: aviso |
+| Carpetas legibles | ninguna carpeta sin permiso de lectura (su contenido no se puede auditar) | aviso |
 | Claude Code | `settings*.json` es JSON válido, sin reglas con ruta de `Write`, `NotebookEdit`, `MultiEdit` o `Glob` (que Claude Code acepta y nunca aplica); agentes, también en subcarpetas, con `name` y `description` y sin `name` repetido; comandos con frontmatter cerrado | sí |
 
 Busca los proyectos como las carpetas que contienen `1_datos_originales/` y toma
@@ -316,8 +318,10 @@ ruff check .
 - **No valida el YAML completo** del frontmatter: comprueba que el bloque abra y
   cierre y que existan `name` y `description` en los agentes. No comprueba que
   `tools` o `model` nombren algo que exista.
-- **Se salta en silencio lo que no puede leer**: el contenido de carpetas sin
-  permiso de lectura y de archivos de más de 2 MB no se revisa.
+- **No audita lo que no puede leer.** Una carpeta sin permiso de lectura no
+  rompe el auditor: aparece como aviso en «Carpetas que se pudieron leer», pero
+  lo que hay adentro no se revisa. El contenido de archivos de más de 2 MB
+  tampoco (en silencio; su nombre sí se revisa).
 - **No ejecuta Claude Code.** Valida la forma de la configuración contra la
   documentación; si una regla protege lo que usted cree, se comprueba con
   `/permissions` dentro de Claude Code.

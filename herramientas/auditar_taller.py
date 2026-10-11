@@ -31,7 +31,9 @@ proyecto, recalculándolos desde la fuente por otro camino.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -78,36 +80,64 @@ class Informe:
             self.detalles[chequeo] = hallazgos
 
 
-def ignorado(p: Path, raiz: Path) -> bool:
-    """Solo cuentan las partes DENTRO del taller: un taller guardado en
-    ~/venv/... o ~/.claude/... no debe quedar ignorado entero."""
-    return any(parte in IGNORAR for parte in p.relative_to(raiz).parts)
+class Arbol:
+    """Un solo recorrido del taller que nunca lanza: lo que no se puede leer
+    queda en `ilegibles` en vez de interrumpir la auditoría. No sigue enlaces
+    simbólicos a carpetas (aparecen como entrada, no se recorren)."""
+
+    def __init__(self, raiz: Path):
+        self.raiz = raiz
+        self.carpetas: list[Path] = []
+        self.archivos: list[Path] = []      # incluye enlaces a archivos y enlaces rotos
+        self.ilegibles: list[Path] = []
+
+        def error(e: OSError):
+            self.ilegibles.append(Path(e.filename))
+
+        for base, dirs, files in os.walk(raiz, onerror=error):
+            b = Path(base)
+            dirs[:] = sorted(d for d in dirs if d not in IGNORAR - {".claude"})
+            self.carpetas += [b / d for d in dirs]
+            self.archivos += [b / f for f in sorted(files)]
+        self.es_carpeta = set(self.carpetas)
+        self.es_archivo = set(self.archivos)
+
+    def rel(self, p: Path) -> tuple[str, ...]:
+        return p.relative_to(self.raiz).parts
+
+    def fuera_de_claude(self) -> list[Path]:
+        """Todo lo del taller salvo el contenido de .claude/ (ni la carpeta misma)."""
+        return [p for p in self.carpetas + self.archivos if ".claude" not in self.rel(p)]
 
 
-def archivos(raiz: Path):
-    for p in raiz.rglob("*"):
-        if not ignorado(p, raiz):
-            yield p
+def seguro(prueba, defecto=False):
+    """is_file(), exists(), stat()… sin dejar que un permiso denegado lance."""
+    try:
+        return prueba()
+    except OSError:
+        return defecto
 
 
-def archivos_claude(raiz: Path):
+def archivos_claude(arbol: Arbol) -> list[Path]:
     """Archivos de cada .claude/ del taller, para buscar credenciales: ahí vive
     settings.local.json, cuyo bloque `env` es donde suele terminar una API key.
     Se salta .claude/worktrees/, que son copias del propio repositorio."""
-    for cl in raiz.rglob(".claude"):
-        if not cl.is_dir() or any(x in IGNORAR for x in cl.relative_to(raiz).parts[:-1]):
+    salida = []
+    for p in arbol.archivos:
+        partes = arbol.rel(p)
+        if ".claude" not in partes:
             continue
-        for p in cl.rglob("*"):
-            partes = p.relative_to(cl).parts
-            if partes[0] != "worktrees" and not any(x in IGNORAR for x in partes):
-                yield p
+        resto = partes[partes.index(".claude") + 1:]
+        if resto[0] != "worktrees":
+            salida.append(p)
+    return salida
 
 
-def hallar_proyectos(raiz: Path) -> tuple[Path | None, list[Path]]:
+def hallar_proyectos(arbol: Arbol) -> tuple[Path | None, list[Path]]:
     """La carpeta de proyectos es la que contiene subcarpetas con la estructura."""
     candidatas: dict[Path, list[Path]] = {}
-    for p in raiz.rglob("1_datos_originales"):
-        if p.is_dir() and not ignorado(p, raiz):
+    for p in arbol.carpetas:
+        if p.name == "1_datos_originales" and ".claude" not in arbol.rel(p):
             candidatas.setdefault(p.parent.parent, []).append(p.parent)
     if not candidatas:
         return None, []
@@ -132,15 +162,15 @@ def frontmatter(texto: str) -> dict[str, str] | None:
     return None
 
 
-def revisar_claude(raiz: Path) -> tuple[int, list[str]]:
+def revisar_claude(arbol: Arbol) -> tuple[int, list[str]]:
     """(archivos revisados, hallazgos) de cada carpeta .claude/ del taller."""
+    raiz = arbol.raiz
     revisados, hallazgos = 0, []
-    for cl in sorted(raiz.rglob(".claude")):
-        rel_cl = cl.relative_to(raiz)
-        if not cl.is_dir() or any(x in IGNORAR - {".claude"} for x in rel_cl.parts):
-            continue
+    for cl in sorted(c for c in arbol.carpetas if c.name == ".claude"):
+        propios = [p for p in arbol.archivos if cl in p.parents]
 
-        for cfg in sorted(cl.glob("settings*.json")):
+        for cfg in sorted(p for p in propios
+                          if p.parent == cl and fnmatch.fnmatch(p.name, "settings*.json")):
             revisados += 1
             rel = cfg.relative_to(raiz)
             try:
@@ -168,7 +198,8 @@ def revisar_claude(raiz: Path) -> tuple[int, list[str]]:
         # identifica al agente: si dos archivos lo repiten, uno tapa al otro.
         nombres: dict[str, Path] = {}
         for tipo in ("agents", "commands"):
-            for md in sorted((cl / tipo).rglob("*.md")):
+            for md in sorted(p for p in propios
+                             if (cl / tipo) in p.parents and p.suffix == ".md"):
                 revisados += 1
                 rel = md.relative_to(raiz)
                 try:
@@ -201,29 +232,30 @@ def revisar_claude(raiz: Path) -> tuple[int, list[str]]:
 
 def auditar(raiz: Path) -> Informe:
     inf = Informe()
-    todos = list(archivos(raiz))
-    _padre, proyectos = hallar_proyectos(raiz)
+    arbol = Arbol(raiz)
+    todos = arbol.fuera_de_claude()
+    _padre, proyectos = hallar_proyectos(arbol)
 
     # ── estructura ──────────────────────────────────────────────────────────
     # Sin ningún proyecto, casi seguro la ruta es otra: que no pase en verde.
     faltantes = [] if proyectos else [
         "ningún proyecto: no hay carpetas con 1_datos_originales/ — ¿es la raíz del taller?"]
     for pr in proyectos:
-        falta = [c for c in CARPETAS if not (pr / c).is_dir()]
+        falta = [c for c in CARPETAS if (pr / c) not in arbol.es_carpeta]
         if falta:
             faltantes.append(f"{pr.name}: falta {', '.join(falta)}")
     inf.anota("Proyectos con la estructura completa",
               len(proyectos) - len(faltantes), len(proyectos), faltantes)
 
     sin_leeme = [pr.name for pr in proyectos
-                 if not any((pr / n).is_file() for n in ("LEEME.md", "README.md"))]
+                 if not any((pr / n) in arbol.es_archivo for n in ("LEEME.md", "README.md"))]
     inf.anota("Proyectos con LEEME.md", len(proyectos) - len(sin_leeme),
               len(proyectos), sin_leeme)
 
     extras = []
     for pr in proyectos:
-        sobra = [d.name for d in pr.iterdir()
-                 if d.is_dir() and d.name not in CARPETAS
+        sobra = [d.name for d in arbol.carpetas
+                 if d.parent == pr and d.name not in CARPETAS
                  and not d.name.startswith((".", "legacy_", "_"))]
         if sobra:
             extras.append(f"{pr.name}: {', '.join(sorted(sobra))}")
@@ -231,8 +263,8 @@ def auditar(raiz: Path) -> Informe:
               len(proyectos) - len(extras), len(proyectos), extras, critico=False)
 
     # ── código ──────────────────────────────────────────────────────────────
-    codigo = [p for p in todos if p.is_file() and not p.is_symlink()
-              and p.suffix.lower() in CODIGO and p.stat().st_size <= TOPE_BYTES]
+    codigo = [p for p in todos if p in arbol.es_archivo and p.suffix.lower() in CODIGO
+              and seguro(lambda p=p: not p.is_symlink() and p.stat().st_size <= TOPE_BYTES)]
     con_ruta, no_compilan, con_secreto = [], [], []
     for p in codigo:
         try:
@@ -261,11 +293,11 @@ def auditar(raiz: Path) -> Informe:
               len(py), no_compilan)
 
     # ── secretos ────────────────────────────────────────────────────────────
-    claude = [p for p in archivos_claude(raiz) if p.is_file() and not p.is_symlink()]
+    claude = [p for p in archivos_claude(arbol) if seguro(lambda p=p: not p.is_symlink())]
     por_nombre = [str(p.relative_to(raiz)) for p in todos + claude
-                  if p.is_file() and SECRETO_NOMBRE.search(p.name)]
+                  if SECRETO_NOMBRE.search(p.name) and seguro(p.is_file)]
     for p in claude:
-        if p.stat().st_size <= TOPE_BYTES:
+        if seguro(lambda p=p: p.stat().st_size <= TOPE_BYTES):
             try:
                 texto = p.read_text(encoding="utf-8", errors="ignore")
             except OSError:
@@ -278,8 +310,8 @@ def auditar(raiz: Path) -> Informe:
               total - len(secretos), total, secretos)
 
     # ── enlaces ─────────────────────────────────────────────────────────────
-    enlaces = [p for p in todos if p.is_symlink()]
-    rotos = [str(p.relative_to(raiz)) for p in enlaces if not p.exists()]
+    enlaces = [p for p in todos if seguro(p.is_symlink)]
+    rotos = [str(p.relative_to(raiz)) for p in enlaces if not seguro(p.exists)]
     inf.anota("Enlaces simbólicos que resuelven",
               len(enlaces) - len(rotos), len(enlaces), rotos)
 
@@ -304,7 +336,7 @@ def auditar(raiz: Path) -> Informe:
 
     # ── índice ──────────────────────────────────────────────────────────────
     indice = next((raiz / n for n in ("EMPIECE_AQUI.md", "INDICE.md", "README.md")
-                   if (raiz / n).is_file()), None)
+                   if (raiz / n) in arbol.es_archivo), None)
     if indice is None:
         inf.anota("El índice existe y nombra los proyectos", 0, 1,
                   ["no hay EMPIECE_AQUI.md, INDICE.md ni README.md en la raíz"])
@@ -316,10 +348,18 @@ def auditar(raiz: Path) -> Informe:
                   sin_listar, critico=False)
 
     # ── configuración de Claude Code ────────────────────────────────────────
-    revisados, malos_cfg = revisar_claude(raiz)
+    revisados, malos_cfg = revisar_claude(arbol)
     inf.anota("Configuración de Claude Code válida",
               revisados - len({h.split(" — ")[0] for h in malos_cfg}),
               revisados, malos_cfg)
+
+    # ── lo que no se pudo leer ──────────────────────────────────────────────
+    # Aviso, no falla: el auditor no sabe qué hay adentro, pero no lo calla.
+    ilegibles = [f"{p.relative_to(raiz) if p != raiz else '.'} — sin permiso de lectura; "
+                 "su contenido no se auditó" for p in arbol.ilegibles]
+    carpetas = len(arbol.carpetas) + 1
+    inf.anota("Carpetas que se pudieron leer", carpetas - len(ilegibles), carpetas,
+              ilegibles, critico=False)
     return inf
 
 
