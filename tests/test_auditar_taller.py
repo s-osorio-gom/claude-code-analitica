@@ -358,6 +358,18 @@ class ClaudeEnlazado(Base):
         self.assertEqual(estados(self.taller)["Configuración de Claude Code válida"], "FALLA")
         self.assertEqual(correr(self.taller).returncode, 1)
 
+    def test_fuera_de_claude_las_carpetas_enlazadas_no_se_recorren(self):
+        # Es el diseño de preparar_para_drive: un insumo pesado compartido por
+        # enlace vive una sola vez y no se vuelve a auditar desde cada proyecto.
+        externo = self.tmp / "MGN"
+        externo.mkdir()
+        (externo / "cargar.py").write_text('BASE = "/Users/alguien/mgn"\n', encoding="utf-8")
+        (self.proyecto() / "1_datos_originales" / "MGN").symlink_to(
+            externo, target_is_directory=True)
+        e = estados(self.taller)
+        self.assertEqual(e["Código sin rutas absolutas"], "OK", e)
+        self.assertEqual(e["Enlaces simbólicos que resuelven"], "OK", e)
+
     def test_bucles_y_enlaces_a_un_ancestro_no_se_recorren(self):
         agentes = self.taller / "area" / ".claude" / "agents"
         (agentes / "arriba").symlink_to("..", target_is_directory=True)     # vuelve a .claude/
