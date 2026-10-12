@@ -145,7 +145,10 @@ solo entra a dos chequeos:
   apunte a una carpeta que el taller ya recorrió por otro lado; cada carpeta
   real se recorre a lo sumo una vez como taller y una como `.claude/`, y nunca
   si el enlace apunta a la raíz del taller, a la carpeta personal o a un
-  ancestro (eso aparece como aviso). Un archivo que se llame `.claude` no es
+  ancestro de alguna de las dos (eso aparece como aviso). Un enlace a otra
+  carpeta del propio taller —incluso una que contiene al `.claude/`— se audita
+  como configuración, y entonces sus credenciales se listan una vez por cada
+  camino por el que se llega a ellas. Un archivo que se llame `.claude` no es
   una carpeta de configuración y se ignora como tal. Fuera de `.claude/` las carpetas enlazadas
   no se recorren: el chequeo de enlaces solo comprueba que resuelvan.
 

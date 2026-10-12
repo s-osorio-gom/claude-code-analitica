@@ -482,9 +482,8 @@ class ArchivoLlamadoClaude(Base):
         (self.taller / "area" / ".claude").symlink_to(self.tmp / "no_existe")
         r = correr(self.taller)
         self.assertNotIn("Traceback", r.stderr)
-        self.assertIn(r.returncode, (0, 1), r.stdout + r.stderr)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
 
 if __name__ == "__main__":
     unittest.main()
-
