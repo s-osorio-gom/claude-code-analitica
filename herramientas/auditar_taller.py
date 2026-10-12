@@ -96,20 +96,38 @@ class Arbol:
         self.carpetas: list[Path] = []
         self.archivos: list[Path] = []      # incluye enlaces a archivos y enlaces rotos
         self.ilegibles: list[Path] = []
+        # Partes relativas a la raíz, calculadas una vez por carpeta: con decenas
+        # de miles de archivos, Path.relative_to() por archivo domina el tiempo.
+        self._rel: dict[Path, tuple[str, ...]] = {raiz: ()}
 
         def error(e: OSError):
             self.ilegibles.append(Path(e.filename))
 
         for base, dirs, files in os.walk(raiz, onerror=error):
             b = Path(base)
+            rb = self._rel[b]
             dirs[:] = sorted(d for d in dirs if d not in IGNORAR - {".claude"})
-            self.carpetas += [b / d for d in dirs]
-            self.archivos += [b / f for f in sorted(files)]
+            for nombre in dirs:
+                self.carpetas.append(b / nombre)
+                self._rel[b / nombre] = rb + (nombre,)
+            for nombre in sorted(files):
+                self.archivos.append(b / nombre)
+                self._rel[b / nombre] = rb + (nombre,)
         self.es_carpeta = set(self.carpetas)
         self.es_archivo = set(self.archivos)
 
     def rel(self, p: Path) -> tuple[str, ...]:
-        return p.relative_to(self.raiz).parts
+        return self._rel[p]
+
+    def por_claude(self) -> dict[Path, list[Path]]:
+        """Archivos agrupados por su .claude/ más cercano, en una sola pasada."""
+        grupos: dict[Path, list[Path]] = {}
+        for p in self.archivos:
+            partes = self.rel(p)
+            if ".claude" in partes:
+                k = len(partes) - 1 - partes[::-1].index(".claude")
+                grupos.setdefault(self.raiz.joinpath(*partes[:k + 1]), []).append(p)
+        return grupos
 
     def fuera_de_claude(self) -> list[Path]:
         """Todo lo del taller salvo el contenido de .claude/ (ni la carpeta misma)."""
@@ -181,8 +199,9 @@ def revisar_claude(arbol: Arbol) -> tuple[int, list[str]]:
     """(archivos revisados, hallazgos) de cada carpeta .claude/ del taller."""
     raiz = arbol.raiz
     revisados, hallazgos = 0, []
+    grupos = arbol.por_claude()
     for cl in sorted(c for c in arbol.carpetas if c.name == ".claude"):
-        propios = [p for p in arbol.archivos if cl in p.parents]
+        propios = grupos.get(cl, [])
 
         for cfg in sorted(p for p in propios
                           if p.parent == cl and fnmatch.fnmatch(p.name, "settings*.json")):
@@ -267,10 +286,13 @@ def auditar(raiz: Path) -> Informe:
     inf.anota("Proyectos con LEEME.md", len(proyectos) - len(sin_leeme),
               len(proyectos), sin_leeme)
 
+    hijas: dict[Path, list[Path]] = {}
+    for d in arbol.carpetas:
+        hijas.setdefault(d.parent, []).append(d)
     extras = []
     for pr in proyectos:
-        sobra = [d.name for d in arbol.carpetas
-                 if d.parent == pr and d.name not in CARPETAS
+        sobra = [d.name for d in hijas.get(pr, [])
+                 if d.name not in CARPETAS
                  and not d.name.startswith((".", "legacy_", "_"))]
         if sobra:
             extras.append(f"{pr.name}: {', '.join(sorted(sobra))}")
@@ -347,7 +369,7 @@ def auditar(raiz: Path) -> Informe:
             malos.append(f"{p.relative_to(raiz)} — termina en espacio o punto")
         elif n.split(".")[0].upper() in RESERVADOS_WIN:
             malos.append(f"{p.relative_to(raiz)} — nombre reservado de Windows")
-        elif len(str(p.relative_to(raiz))) > 240:
+        elif len(os.sep.join(arbol.rel(p))) > 240:
             malos.append(f"{p.relative_to(raiz)} — ruta demasiado larga")
     inf.anota("Nombres compatibles con Drive y Windows",
               len(todos) - len(malos), len(todos), malos)

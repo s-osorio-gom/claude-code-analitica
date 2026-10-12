@@ -340,6 +340,30 @@ class Avisos(Base):
         self.assertEqual(correr(self.taller).returncode, 0)
 
 
+class Contada(list):
+    """Lista que cuenta cuántas veces se recorre."""
+    vueltas = 0
+
+    def __iter__(self):
+        self.vueltas += 1
+        return super().__iter__()
+
+
+class Escala(Base):
+    def test_revisar_claude_no_recorre_el_taller_una_vez_por_carpeta_claude(self):
+        # Con un recorrido por cada .claude/ el costo es cuadrático: 70 000
+        # archivos y 31 .claude/ pasaban de ~30 s a ~4 min. Contar vueltas es
+        # determinista; un límite de tiempo sería frágil.
+        for i in range(30):
+            shutil.copytree(self.taller / "area" / ".claude",
+                            self.taller / f"otra{i}" / ".claude")
+        arbol = auditar_taller.Arbol(self.taller)
+        arbol.archivos = Contada(arbol.archivos)
+        revisados, _ = auditar_taller.revisar_claude(arbol)
+        self.assertEqual(revisados, 31 * 13)
+        self.assertLessEqual(arbol.archivos.vueltas, 2)
+
+
 class Entrada(unittest.TestCase):
     def test_carpeta_sin_proyectos_no_pasa(self):
         # Una ruta equivocada (otro repositorio con README.md) no debe dar verde.
