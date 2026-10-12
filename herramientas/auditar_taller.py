@@ -94,9 +94,10 @@ class Arbol:
     .claude/, no se recorren. Dentro de .claude/ (o si el enlace es el propio
     .claude/) sí: un .claude/ o un agents/ compartido por enlace es
     configuración que Claude Code carga. Para no dar vueltas ni salirse, cada
-    carpeta real se recorre una sola vez (el taller primero) y no se sigue un
-    enlace que apunte a la raíz del taller, a la carpeta personal o a un
-    ancestro de cualquiera de las dos."""
+    carpeta real se recorre como mucho una vez como taller y una vez como
+    .claude/ (así un agents/ que enlaza a una carpeta del propio taller también
+    se audita como configuración), y no se sigue un enlace que apunte a la raíz
+    del taller, a la carpeta personal o a un ancestro de cualquiera de las dos."""
 
     def __init__(self, raiz: Path):
         self.raiz = raiz
@@ -122,17 +123,17 @@ class Arbol:
                 return False
             return True
 
-        visitadas: set[str] = set()
+        visitadas: set[tuple[str, bool]] = set()   # (carpeta real, ¿dentro de .claude?)
         pendientes = [raiz]
         while pendientes:
             for base, dirs, files in os.walk(pendientes.pop(), onerror=error):
-                real = os.path.realpath(base)
-                if real in visitadas:      # bucle, o carpeta ya vista por otro camino
-                    dirs[:] = []
-                    continue
-                visitadas.add(real)
                 b = Path(base)
                 rb = self._rel[b]
+                clave = (os.path.realpath(base), ".claude" in rb)
+                if clave in visitadas:     # bucle, o carpeta ya vista en este mismo papel
+                    dirs[:] = []
+                    continue
+                visitadas.add(clave)
                 dirs[:] = sorted(d for d in dirs if d not in IGNORAR - {".claude"})
                 for nombre in dirs:
                     q = b / nombre
@@ -153,7 +154,7 @@ class Arbol:
         """Archivos agrupados por su .claude/ más cercano, en una sola pasada."""
         grupos: dict[Path, list[Path]] = {}
         for p in self.archivos:
-            partes = self.rel(p)
+            partes = self.rel(p)[:-1]      # un archivo llamado .claude no es una carpeta .claude/
             if ".claude" in partes:
                 k = len(partes) - 1 - partes[::-1].index(".claude")
                 grupos.setdefault(self.raiz.joinpath(*partes[:k + 1]), []).append(p)
@@ -185,9 +186,9 @@ def archivos_claude(arbol: Arbol) -> tuple[list[Path], list[Path]]:
     config, worktrees = [], []
     for p in arbol.archivos:
         partes = arbol.rel(p)
-        if ".claude" not in partes:
+        if ".claude" not in partes[:-1]:   # un archivo o enlace roto llamado .claude
             continue
-        k = len(partes) - 1 - partes[::-1].index(".claude")
+        k = len(partes) - 2 - partes[-2::-1].index(".claude")
         (worktrees if partes[k + 1] == "worktrees" else config).append(p)
     return config, worktrees
 

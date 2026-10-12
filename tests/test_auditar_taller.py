@@ -358,6 +358,29 @@ class ClaudeEnlazado(Base):
         self.assertEqual(estados(self.taller)["Configuración de Claude Code válida"], "FALLA")
         self.assertEqual(correr(self.taller).returncode, 1)
 
+    def test_claude_enlazado_a_una_carpeta_del_propio_taller(self):
+        # La carpeta ya se recorrió como parte del taller; detrás del enlace
+        # sigue siendo configuración y se audita como tal.
+        compartido = self.taller / "compartido"
+        compartido.mkdir()
+        destino = compartido / "claude"
+        shutil.move(str(self.taller / "area" / ".claude"), str(destino))
+        (self.taller / "area" / ".claude").symlink_to("../compartido/claude",
+                                                       target_is_directory=True)
+        (destino / "agents" / "roto.md").write_text("sin cabecera\n", encoding="utf-8")
+        self.assertEqual(estados(self.taller)["Configuración de Claude Code válida"], "FALLA")
+        self.assertEqual(correr(self.taller).returncode, 1)
+
+    def test_agents_enlazado_a_una_carpeta_del_propio_taller(self):
+        destino = self.taller / "compartido" / "agents"
+        destino.parent.mkdir()
+        agents = self.taller / "area" / ".claude" / "agents"
+        shutil.move(str(agents), str(destino))
+        agents.symlink_to("../../compartido/agents", target_is_directory=True)
+        (destino / "roto.md").write_text("sin cabecera\n", encoding="utf-8")
+        self.assertEqual(estados(self.taller)["Configuración de Claude Code válida"], "FALLA")
+
+
     def test_fuera_de_claude_las_carpetas_enlazadas_no_se_recorren(self):
         # Es el diseño de preparar_para_drive: un insumo pesado compartido por
         # enlace vive una sola vez y no se vuelve a auditar desde cada proyecto.
@@ -445,5 +468,23 @@ class Entrada(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
 
 
+class ArchivoLlamadoClaude(Base):
+    """Un archivo, o un enlace roto, llamado .claude no es una carpeta .claude/."""
+
+    def test_archivo_llamado_claude(self):
+        (self.proyecto() / "2_trabajo" / ".claude").write_text("x\n", encoding="utf-8")
+        r = correr(self.taller)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_claude_como_enlace_roto(self):
+        shutil.rmtree(self.taller / "area" / ".claude")
+        (self.taller / "area" / ".claude").symlink_to(self.tmp / "no_existe")
+        r = correr(self.taller)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertIn(r.returncode, (0, 1), r.stdout + r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
+

@@ -141,9 +141,12 @@ solo entra a dos chequeos:
   `.env`): se revisan con las reglas de credenciales del resto del taller.
 - **Enlaces simbólicos dentro de `.claude/`**: un archivo enlazado se revisa como
   el archivo al que apunta. Una carpeta enlazada (el propio `.claude/`, o
-  `agents/`, `commands/`… compartidos) se recorre: cada carpeta real una sola
-  vez, y nunca si apunta a la raíz del taller, a la carpeta personal o a un
-  ancestro (eso aparece como aviso). Fuera de `.claude/` las carpetas enlazadas
+  `agents/`, `commands/`… compartidos) se recorre como configuración, aunque
+  apunte a una carpeta que el taller ya recorrió por otro lado; cada carpeta
+  real se recorre a lo sumo una vez como taller y una como `.claude/`, y nunca
+  si el enlace apunta a la raíz del taller, a la carpeta personal o a un
+  ancestro (eso aparece como aviso). Un archivo que se llame `.claude` no es
+  una carpeta de configuración y se ignora como tal. Fuera de `.claude/` las carpetas enlazadas
   no se recorren: el chequeo de enlaces solo comprueba que resuelvan.
 
 No lee el contenido de
