@@ -109,6 +109,7 @@ class TallerRoto(Base):
     def test_binario_con_extension_py_no_rompe_el_auditor(self):
         (self.proyecto() / "4_tecnico" / "b.py").write_bytes(b"\x00\xff\xfe\x89PNG")
         self.assertFalla("Scripts de Python que compilan")
+        self.assertNotIn("b.py:None", correr(self.taller).stdout)
 
     def test_archivo_no_utf8_no_rompe_el_auditor(self):
         (self.proyecto() / "4_tecnico" / "latin1.py").write_bytes(
@@ -125,6 +126,66 @@ class TallerRoto(Base):
         (self.proyecto() / "4_tecnico" / "conectar.py").write_text(
             f"K = '''{llave}'''\n", encoding="utf-8")
         self.assertFalla("Sin credenciales dentro del taller")
+
+    def test_api_key_en_settings_local_de_claude(self):
+        # .claude/ no entra a los demás chequeos, pero sí al de credenciales.
+        llave = "sk-ant-" + "api03-" + "x" * 40
+        (self.taller / "area" / ".claude" / "settings.local.json").write_text(
+            json.dumps({"env": {"ANTHROPIC_API_KEY": llave}}), encoding="utf-8")
+        self.assertFalla("Sin credenciales dentro del taller")
+
+    def test_credencial_por_nombre_dentro_de_claude(self):
+        (self.taller / "area" / ".claude" / "credentials.json").write_text(
+            "{}", encoding="utf-8")
+        self.assertFalla("Sin credenciales dentro del taller")
+
+    def test_nombres_de_agente_o_hook_no_son_credenciales(self):
+        cl = self.taller / "area" / ".claude"
+        (cl / "agents" / "secret-scanner.md").write_text(
+            "---\nname: secret-scanner\ndescription: Busca secretos en el código\n"
+            "tools: Read, Grep\n---\nRevisa.\n", encoding="utf-8")
+        (cl / "hooks").mkdir()
+        (cl / "hooks" / "check_password.py").write_text("import sys\n", encoding="utf-8")
+        e = estados(self.taller)
+        self.assertEqual(e["Sin credenciales dentro del taller"], "OK", e)
+        self.assertEqual(correr(self.taller).returncode, 0)
+
+    def test_credencial_en_un_worktree_de_claude(self):
+        # .claude/worktrees/<x>/ es una copia de trabajo dentro del taller, y
+        # .worktreeinclude copia ahí la .env. (Antes una prueba exigía «OK» aquí.)
+        wt = self.taller / "area" / ".claude" / "worktrees" / "rama" / "4_tecnico"
+        wt.mkdir(parents=True)
+        (wt / ".env").write_text("X=1\n", encoding="utf-8")
+        self.assertFalla("Sin credenciales dentro del taller")
+
+    def test_worktree_usa_las_reglas_del_taller_y_su_claude_las_de_configuracion(self):
+        wt = self.taller / "area" / ".claude" / "worktrees" / "rama"
+        shutil.copytree(self.taller / "area", wt / "area",
+                        ignore=shutil.ignore_patterns("worktrees"))
+        agentes = wt / "area" / ".claude" / "agents"
+        (agentes / "secret-scanner.md").write_text(
+            "---\nname: secret-scanner\ndescription: x\n---\nHola\n", encoding="utf-8")
+        self.assertEqual(estados(self.taller)["Sin credenciales dentro del taller"], "OK")
+        # Fuera de su .claude/, un worktree es taller: el nombre cuenta como en un proyecto.
+        (wt / "area" / "db_password.txt").write_text("x", encoding="utf-8")
+        self.assertFalla("Sin credenciales dentro del taller")
+
+    @unittest.skipIf(os.name == "nt", "enlaces simbólicos requieren permisos en Windows")
+    def test_credenciales_detras_de_un_enlace_en_claude(self):
+        fuera = self.tmp / "fuera"
+        fuera.mkdir()
+        (fuera / "local.json").write_text(
+            json.dumps({"env": {"ANTHROPIC_API_KEY": "sk-ant-" + "y" * 40}}), encoding="utf-8")
+        (fuera / "cred.json").write_text("{}", encoding="utf-8")
+        cl = self.taller / "area" / ".claude"
+        for enlace, destino in (("settings.local.json", "local.json"),
+                                ("credentials.json", "cred.json")):
+            with self.subTest(enlace=enlace):
+                (cl / enlace).symlink_to(fuera / destino)
+                self.assertFalla("Sin credenciales dentro del taller")
+                self.assertIn(f"area/.claude/{enlace}",
+                              correr(self.taller).stdout.replace("\\", "/"))
+                (cl / enlace).unlink()
 
     @unittest.skipIf(os.name == "nt", "enlaces simbólicos requieren permisos en Windows")
     def test_enlace_roto(self):
@@ -148,6 +209,38 @@ class TallerRoto(Base):
         cfg.write_text(json.dumps(datos), encoding="utf-8")
         self.assertFalla("Configuración de Claude Code válida")
 
+    def test_reglas_notebookedit_y_multiedit_que_claude_code_ignora(self):
+        cfg = self.taller / "area" / ".claude" / "settings.json"
+        original = cfg.read_text(encoding="utf-8")
+        for regla in ("NotebookEdit(./**/2_trabajo/**)", "MultiEdit(./**/3_entregable/**)"):
+            with self.subTest(regla=regla):
+                datos = json.loads(original)
+                datos["permissions"]["ask"].append(regla)
+                cfg.write_text(json.dumps(datos), encoding="utf-8")
+                self.assertFalla("Configuración de Claude Code válida")
+
+    def test_sin_archivo_indice(self):
+        # Sin EMPIECE_AQUI.md, INDICE.md ni README.md es falla, no solo aviso.
+        (self.taller / "EMPIECE_AQUI.md").unlink()
+        self.assertFalla("El índice existe y nombra los proyectos")
+
+    def test_regla_glob_que_claude_code_ignora(self):
+        cfg = self.taller / "area" / ".claude" / "settings.json"
+        datos = json.loads(cfg.read_text(encoding="utf-8"))
+        datos["permissions"]["deny"].append("Glob(./**/credentials/**)")
+        cfg.write_text(json.dumps(datos), encoding="utf-8")
+        self.assertFalla("Configuración de Claude Code válida")
+        r = correr(self.taller)
+        self.assertIn("use Read(...)", r.stdout)
+
+    def test_herramienta_sin_ruta_no_es_falla(self):
+        # "Write" o "Glob" solos sí se aplican, a nivel de herramienta.
+        cfg = self.taller / "area" / ".claude" / "settings.json"
+        datos = json.loads(cfg.read_text(encoding="utf-8"))
+        datos["permissions"]["deny"] += ["Write", "Glob"]
+        cfg.write_text(json.dumps(datos), encoding="utf-8")
+        self.assertEqual(estados(self.taller)["Configuración de Claude Code válida"], "OK")
+
     def test_agente_sin_frontmatter(self):
         (self.taller / "area" / ".claude" / "agents" / "suelto.md").write_text(
             "Eres un agente sin cabecera.\n", encoding="utf-8")
@@ -158,10 +251,160 @@ class TallerRoto(Base):
             "---\nname: corto\ntools: Read\n---\nHola\n", encoding="utf-8")
         self.assertFalla("Configuración de Claude Code válida")
 
+    def test_agente_roto_en_subcarpeta(self):
+        sub = self.taller / "area" / ".claude" / "agents" / "finanzas"
+        sub.mkdir()
+        (sub / "suelto.md").write_text("Sin cabecera.\n", encoding="utf-8")
+        self.assertFalla("Configuración de Claude Code válida")
+
+    def test_name_entre_comillas_es_valido(self):
+        agentes = self.taller / "area" / ".claude" / "agents"
+        (agentes / "citado.md").write_text(
+            '---\nname: "data-engineer-b"\ndescription: \'Con comillas\'\n---\nHola\n',
+            encoding="utf-8")
+        self.assertEqual(estados(self.taller)["Configuración de Claude Code válida"], "OK")
+
+    def test_name_que_empieza_con_guion(self):
+        # Claude Code se salta ese agente (solo lo dice en el log de --debug).
+        (self.taller / "area" / ".claude" / "agents" / "guion.md").write_text(
+            "---\nname: -guion\ndescription: x\n---\nHola\n", encoding="utf-8")
+        self.assertFalla("Configuración de Claude Code válida")
+
+    def test_dos_agentes_con_el_mismo_name(self):
+        agentes = self.taller / "area" / ".claude" / "agents"
+        shutil.copy(agentes / "data-engineer.md", agentes / "data-engineer-v2.md")
+        self.assertFalla("Configuración de Claude Code válida")
+        self.assertIn("repetido", correr(self.taller).stdout)
+
     def test_comando_con_frontmatter_sin_cerrar(self):
         (self.taller / "area" / ".claude" / "commands" / "abierto.md").write_text(
             "---\ndescription: nunca cierra\n\nHaz algo\n", encoding="utf-8")
         self.assertFalla("Configuración de Claude Code válida")
+
+
+SIN_PERMISOS = os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0)
+
+
+@unittest.skipIf(SIN_PERMISOS, "chmod no quita la lectura en Windows ni a root")
+class Ilegible(Base):
+    """Lo que no se puede leer no rompe el auditor ni se calla: avisa."""
+
+    def setUp(self):
+        super().setUp()
+        self.cerradas: list[Path] = []
+
+    def tearDown(self):
+        for p in self.cerradas:  # devolver el permiso antes de borrar la carpeta temporal
+            p.chmod(0o755)
+        super().tearDown()
+
+    def cerrar(self, p: Path):
+        p.chmod(0)
+        self.cerradas.append(p)
+
+    def test_carpeta_claude_ilegible(self):
+        self.cerrar(self.taller / "area" / ".claude")
+        r = correr(self.taller)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertEqual(estados(self.taller)["Carpetas que se pudieron leer"], "AVISO")
+        self.assertIn("area/.claude — sin permiso de lectura", r.stdout.replace("\\", "/"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_indice_ilegible_es_falla_sin_traza(self):
+        self.cerrar(self.taller / "EMPIECE_AQUI.md")
+        r = correr(self.taller)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("EMPIECE_AQUI.md no se puede leer", r.stdout)
+
+    def test_proyecto_ilegible(self):
+        self.cerrar(self.proyecto("cerrado"))
+        r = correr(self.taller)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertIn("cerrado — sin permiso de lectura", r.stdout)
+
+
+@unittest.skipIf(os.name == "nt", "enlaces simbólicos requieren permisos en Windows")
+class ClaudeEnlazado(Base):
+    """Un .claude/ o un agents/ compartido por enlace es configuración que Claude
+    Code carga: se audita lo que hay detrás."""
+
+    def enlazar(self, que: Path) -> Path:
+        destino = self.tmp / "compartido" / que.name
+        destino.parent.mkdir(exist_ok=True)
+        shutil.move(str(que), str(destino))
+        que.symlink_to(destino, target_is_directory=True)
+        return destino
+
+    def test_claude_enlazado_con_agente_roto_y_credenciales(self):
+        real = self.enlazar(self.taller / "area" / ".claude")
+        (real / "agents" / "roto.md").write_text("sin cabecera\n", encoding="utf-8")
+        (real / "settings.local.json").write_text(
+            json.dumps({"env": {"ANTHROPIC_API_KEY": "sk-ant-" + "z" * 40}}), encoding="utf-8")
+        (real / "credentials.json").write_text("{}", encoding="utf-8")
+        e = estados(self.taller)
+        self.assertEqual(e["Configuración de Claude Code válida"], "FALLA", e)
+        self.assertEqual(e["Sin credenciales dentro del taller"], "FALLA", e)
+        r = correr(self.taller)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        salida = r.stdout.replace("\\", "/")
+        for esperado in ("area/.claude/agents/roto.md", "area/.claude/settings.local.json",
+                         "area/.claude/credentials.json"):
+            self.assertIn(esperado, salida)
+
+    def test_agents_enlazado_con_agente_roto(self):
+        real = self.enlazar(self.taller / "area" / ".claude" / "agents")
+        (real / "roto.md").write_text("sin cabecera\n", encoding="utf-8")
+        self.assertEqual(estados(self.taller)["Configuración de Claude Code válida"], "FALLA")
+        self.assertEqual(correr(self.taller).returncode, 1)
+
+    def test_claude_enlazado_a_una_carpeta_del_propio_taller(self):
+        # La carpeta ya se recorrió como parte del taller; detrás del enlace
+        # sigue siendo configuración y se audita como tal.
+        compartido = self.taller / "compartido"
+        compartido.mkdir()
+        destino = compartido / "claude"
+        shutil.move(str(self.taller / "area" / ".claude"), str(destino))
+        (self.taller / "area" / ".claude").symlink_to("../compartido/claude",
+                                                       target_is_directory=True)
+        (destino / "agents" / "roto.md").write_text("sin cabecera\n", encoding="utf-8")
+        self.assertEqual(estados(self.taller)["Configuración de Claude Code válida"], "FALLA")
+        self.assertEqual(correr(self.taller).returncode, 1)
+
+    def test_agents_enlazado_a_una_carpeta_del_propio_taller(self):
+        destino = self.taller / "compartido" / "agents"
+        destino.parent.mkdir()
+        agents = self.taller / "area" / ".claude" / "agents"
+        shutil.move(str(agents), str(destino))
+        agents.symlink_to("../../compartido/agents", target_is_directory=True)
+        (destino / "roto.md").write_text("sin cabecera\n", encoding="utf-8")
+        self.assertEqual(estados(self.taller)["Configuración de Claude Code válida"], "FALLA")
+
+
+    def test_fuera_de_claude_las_carpetas_enlazadas_no_se_recorren(self):
+        # Es el diseño de preparar_para_drive: un insumo pesado compartido por
+        # enlace vive una sola vez y no se vuelve a auditar desde cada proyecto.
+        externo = self.tmp / "MGN"
+        externo.mkdir()
+        (externo / "cargar.py").write_text('BASE = "/Users/alguien/mgn"\n', encoding="utf-8")
+        (self.proyecto() / "1_datos_originales" / "MGN").symlink_to(
+            externo, target_is_directory=True)
+        e = estados(self.taller)
+        self.assertEqual(e["Código sin rutas absolutas"], "OK", e)
+        self.assertEqual(e["Enlaces simbólicos que resuelven"], "OK", e)
+
+    def test_bucles_y_enlaces_a_un_ancestro_no_se_recorren(self):
+        agentes = self.taller / "area" / ".claude" / "agents"
+        (agentes / "arriba").symlink_to("..", target_is_directory=True)     # vuelve a .claude/
+        (agentes / "afuera").symlink_to(self.tmp, target_is_directory=True)  # ancestro del taller
+        e = estados(self.taller)
+        self.assertEqual(e["Configuración de Claude Code válida"], "OK", e)
+        self.assertEqual(e["Carpetas que se pudieron leer"], "AVISO", e)
+        r = correr(self.taller)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("afuera — enlace a la raíz del taller", r.stdout)
+        fila = next(x for x in r.stdout.splitlines() if "Configuración de Claude" in x)
+        self.assertTrue(fila.rstrip().endswith("13 / 13"), fila)  # nada contado dos veces
 
 
 class Avisos(Base):
@@ -180,7 +423,41 @@ class Avisos(Base):
         self.assertEqual(correr(self.taller).returncode, 0)
 
 
+class Contada(list):
+    """Lista que cuenta cuántas veces se recorre."""
+    vueltas = 0
+
+    def __iter__(self):
+        self.vueltas += 1
+        return super().__iter__()
+
+
+class Escala(Base):
+    def test_revisar_claude_no_recorre_el_taller_una_vez_por_carpeta_claude(self):
+        # Con un recorrido por cada .claude/ el costo es cuadrático: 70 000
+        # archivos y 31 .claude/ pasaban de ~30 s a ~4 min. Contar vueltas es
+        # determinista; un límite de tiempo sería frágil.
+        for i in range(30):
+            shutil.copytree(self.taller / "area" / ".claude",
+                            self.taller / f"otra{i}" / ".claude")
+        arbol = auditar_taller.Arbol(self.taller)
+        arbol.archivos = Contada(arbol.archivos)
+        revisados, _ = auditar_taller.revisar_claude(arbol)
+        self.assertEqual(revisados, 31 * 13)
+        self.assertLessEqual(arbol.archivos.vueltas, 2)
+
+
 class Entrada(unittest.TestCase):
+    def test_carpeta_sin_proyectos_no_pasa(self):
+        # Una ruta equivocada (otro repositorio con README.md) no debe dar verde.
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "README.md").write_text("# otro repo\n", encoding="utf-8")
+            r = correr(Path(d))
+            self.assertEqual(r.returncode, 1, r.stdout)
+            self.assertIn("ningún proyecto", r.stdout)
+            fila = next(x for x in r.stdout.splitlines() if "estructura completa" in x)
+            self.assertTrue(fila.rstrip().endswith("0 / 0"), fila)
+
     def test_ruta_inexistente(self):
         r = correr(Path(tempfile.gettempdir()) / "no-existe-este-taller-123")
         self.assertEqual(r.returncode, 2)
@@ -189,6 +466,23 @@ class Entrada(unittest.TestCase):
     def test_ruta_que_es_un_archivo(self):
         r = correr(AUDITOR)
         self.assertEqual(r.returncode, 2)
+
+
+class ArchivoLlamadoClaude(Base):
+    """Un archivo, o un enlace roto, llamado .claude no es una carpeta .claude/."""
+
+    def test_archivo_llamado_claude(self):
+        (self.proyecto() / "2_trabajo" / ".claude").write_text("x\n", encoding="utf-8")
+        r = correr(self.taller)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_claude_como_enlace_roto(self):
+        shutil.rmtree(self.taller / "area" / ".claude")
+        (self.taller / "area" / ".claude").symlink_to(self.tmp / "no_existe")
+        r = correr(self.taller)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
 
 if __name__ == "__main__":

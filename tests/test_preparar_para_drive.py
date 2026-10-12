@@ -63,6 +63,18 @@ class Ciclo(Base):
         self.assertTrue(enlace.is_symlink())
         self.assertFalse((destino / "LEER_falta_MGN.txt").exists())
 
+    def test_archivo_donde_va_el_enlace_es_problema(self):
+        (self.taller / "a" / "MGN").mkdir(parents=True)
+        (self.taller / "b").mkdir()
+        (self.taller / "b" / "MGN").write_text("no soy un enlace", encoding="utf-8")
+        self.config({"enlaces": [{"origen": "a/MGN", "destinos": ["b"]}]})
+        self.assertEqual(correr(self.taller, "revisar").returncode, 1)
+        r = correr(self.taller, "bajar")
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("un ARCHIVO", r.stdout)
+        self.assertEqual((self.taller / "b" / "MGN").read_text(encoding="utf-8"),
+                         "no soy un enlace", "bajar no debe borrar lo que encuentra")
+
     def test_bajar_sin_origen_falla(self):
         (self.taller / "b").mkdir()
         self.config({"enlaces": [{"origen": "a/MGN", "destinos": ["b"]}]})
@@ -88,6 +100,20 @@ class ConfigInvalida(Base):
 
     def test_ruta_que_se_sale_del_taller(self):
         self.assertInvalida({"enlaces": [{"origen": "a", "destinos": ["../../fuera"]}]})
+
+    @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                     "chmod no quita la lectura en Windows ni a root")
+    def test_config_ilegible(self):
+        self.config({"enlaces": []})
+        cfg = self.taller / "enlaces.json"
+        cfg.chmod(0)
+        try:
+            r = correr(self.taller, "revisar")
+        finally:
+            cfg.chmod(0o644)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("no se puede leer", r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
 
     def test_sin_config_no_es_error(self):
         self.assertEqual(correr(self.taller, "revisar").returncode, 0)
