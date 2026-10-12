@@ -158,6 +158,18 @@ class TallerRoto(Base):
         (wt / ".env").write_text("X=1\n", encoding="utf-8")
         self.assertFalla("Sin credenciales dentro del taller")
 
+    def test_worktree_usa_las_reglas_del_taller_y_su_claude_las_de_configuracion(self):
+        wt = self.taller / "area" / ".claude" / "worktrees" / "rama"
+        shutil.copytree(self.taller / "area", wt / "area",
+                        ignore=shutil.ignore_patterns("worktrees"))
+        agentes = wt / "area" / ".claude" / "agents"
+        (agentes / "secret-scanner.md").write_text(
+            "---\nname: secret-scanner\ndescription: x\n---\nHola\n", encoding="utf-8")
+        self.assertEqual(estados(self.taller)["Sin credenciales dentro del taller"], "OK")
+        # Fuera de su .claude/, un worktree es taller: el nombre cuenta como en un proyecto.
+        (wt / "area" / "db_password.txt").write_text("x", encoding="utf-8")
+        self.assertFalla("Sin credenciales dentro del taller")
+
     @unittest.skipIf(os.name == "nt", "enlaces simbólicos requieren permisos en Windows")
     def test_credenciales_detras_de_un_enlace_en_claude(self):
         fuera = self.tmp / "fuera"
