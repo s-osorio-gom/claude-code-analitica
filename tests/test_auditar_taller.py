@@ -324,6 +324,54 @@ class Ilegible(Base):
         self.assertIn("cerrado — sin permiso de lectura", r.stdout)
 
 
+@unittest.skipIf(os.name == "nt", "enlaces simbólicos requieren permisos en Windows")
+class ClaudeEnlazado(Base):
+    """Un .claude/ o un agents/ compartido por enlace es configuración que Claude
+    Code carga: se audita lo que hay detrás."""
+
+    def enlazar(self, que: Path) -> Path:
+        destino = self.tmp / "compartido" / que.name
+        destino.parent.mkdir(exist_ok=True)
+        shutil.move(str(que), str(destino))
+        que.symlink_to(destino, target_is_directory=True)
+        return destino
+
+    def test_claude_enlazado_con_agente_roto_y_credenciales(self):
+        real = self.enlazar(self.taller / "area" / ".claude")
+        (real / "agents" / "roto.md").write_text("sin cabecera\n", encoding="utf-8")
+        (real / "settings.local.json").write_text(
+            json.dumps({"env": {"ANTHROPIC_API_KEY": "sk-ant-" + "z" * 40}}), encoding="utf-8")
+        (real / "credentials.json").write_text("{}", encoding="utf-8")
+        e = estados(self.taller)
+        self.assertEqual(e["Configuración de Claude Code válida"], "FALLA", e)
+        self.assertEqual(e["Sin credenciales dentro del taller"], "FALLA", e)
+        r = correr(self.taller)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        salida = r.stdout.replace("\\", "/")
+        for esperado in ("area/.claude/agents/roto.md", "area/.claude/settings.local.json",
+                         "area/.claude/credentials.json"):
+            self.assertIn(esperado, salida)
+
+    def test_agents_enlazado_con_agente_roto(self):
+        real = self.enlazar(self.taller / "area" / ".claude" / "agents")
+        (real / "roto.md").write_text("sin cabecera\n", encoding="utf-8")
+        self.assertEqual(estados(self.taller)["Configuración de Claude Code válida"], "FALLA")
+        self.assertEqual(correr(self.taller).returncode, 1)
+
+    def test_bucles_y_enlaces_a_un_ancestro_no_se_recorren(self):
+        agentes = self.taller / "area" / ".claude" / "agents"
+        (agentes / "arriba").symlink_to("..", target_is_directory=True)     # vuelve a .claude/
+        (agentes / "afuera").symlink_to(self.tmp, target_is_directory=True)  # ancestro del taller
+        e = estados(self.taller)
+        self.assertEqual(e["Configuración de Claude Code válida"], "OK", e)
+        self.assertEqual(e["Carpetas que se pudieron leer"], "AVISO", e)
+        r = correr(self.taller)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("afuera — enlace a la raíz del taller", r.stdout)
+        fila = next(x for x in r.stdout.splitlines() if "Configuración de Claude" in x)
+        self.assertTrue(fila.rstrip().endswith("13 / 13"), fila)  # nada contado dos veces
+
+
 class Avisos(Base):
     """Lo no crítico avisa pero no cambia el código de salida."""
 

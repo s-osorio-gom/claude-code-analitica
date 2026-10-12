@@ -138,8 +138,13 @@ solo entra a dos chequeos:
   (`.env`, `credentials.*`, `*.pem`…), para que un agente `secret-scanner.md` o
   un hook `check_password.py` no sean falsos positivos. `.claude/worktrees/` son
   copias de trabajo dentro del taller (y `.worktreeinclude` copia ahí la
-  `.env`): se revisan con las reglas de credenciales del resto del taller. Los
-  enlaces simbólicos se siguen.
+  `.env`): se revisan con las reglas de credenciales del resto del taller.
+- **Enlaces simbólicos dentro de `.claude/`**: un archivo enlazado se revisa como
+  el archivo al que apunta. Una carpeta enlazada (el propio `.claude/`, o
+  `agents/`, `commands/`… compartidos) se recorre: cada carpeta real una sola
+  vez, y nunca si apunta a la raíz del taller, a la carpeta personal o a un
+  ancestro (eso aparece como aviso). Fuera de `.claude/` las carpetas enlazadas
+  no se recorren: el chequeo de enlaces solo comprueba que resuelvan.
 
 No lee el contenido de
 archivos de más de 2 MB: no cuentan en el total de código, aunque su nombre sí se

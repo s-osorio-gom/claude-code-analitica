@@ -88,8 +88,15 @@ class Informe:
 
 class Arbol:
     """Un solo recorrido del taller que nunca lanza: lo que no se puede leer
-    queda en `ilegibles` en vez de interrumpir la auditoría. No sigue enlaces
-    simbólicos a carpetas (aparecen como entrada, no se recorren)."""
+    queda en `ilegibles` en vez de interrumpir la auditoría.
+
+    Los enlaces simbólicos a carpetas aparecen como entrada y, fuera de
+    .claude/, no se recorren. Dentro de .claude/ (o si el enlace es el propio
+    .claude/) sí: un .claude/ o un agents/ compartido por enlace es
+    configuración que Claude Code carga. Para no dar vueltas ni salirse, cada
+    carpeta real se recorre una sola vez (el taller primero) y no se sigue un
+    enlace que apunte a la raíz del taller, a la carpeta personal o a un
+    ancestro de cualquiera de las dos."""
 
     def __init__(self, raiz: Path):
         self.raiz = raiz
@@ -100,19 +107,42 @@ class Arbol:
         # de miles de archivos, Path.relative_to() por archivo domina el tiempo.
         self._rel: dict[Path, tuple[str, ...]] = {raiz: ()}
 
+        self.no_seguidos: list[Path] = []
+        prohibidos = [os.path.realpath(raiz), os.path.realpath(os.path.expanduser("~"))]
+
         def error(e: OSError):
             self.ilegibles.append(Path(e.filename))
 
-        for base, dirs, files in os.walk(raiz, onerror=error):
-            b = Path(base)
-            rb = self._rel[b]
-            dirs[:] = sorted(d for d in dirs if d not in IGNORAR - {".claude"})
-            for nombre in dirs:
-                self.carpetas.append(b / nombre)
-                self._rel[b / nombre] = rb + (nombre,)
-            for nombre in sorted(files):
-                self.archivos.append(b / nombre)
-                self._rel[b / nombre] = rb + (nombre,)
+        def seguible(q: Path) -> bool:
+            if ".claude" not in self._rel[q]:
+                return False
+            destino = os.path.realpath(q)
+            if any(os.path.commonpath([destino, x]) == destino for x in prohibidos):
+                self.no_seguidos.append(q)
+                return False
+            return True
+
+        visitadas: set[str] = set()
+        pendientes = [raiz]
+        while pendientes:
+            for base, dirs, files in os.walk(pendientes.pop(), onerror=error):
+                real = os.path.realpath(base)
+                if real in visitadas:      # bucle, o carpeta ya vista por otro camino
+                    dirs[:] = []
+                    continue
+                visitadas.add(real)
+                b = Path(base)
+                rb = self._rel[b]
+                dirs[:] = sorted(d for d in dirs if d not in IGNORAR - {".claude"})
+                for nombre in dirs:
+                    q = b / nombre
+                    self.carpetas.append(q)
+                    self._rel[q] = rb + (nombre,)
+                    if os.path.islink(q) and seguible(q):
+                        pendientes.append(q)
+                for nombre in sorted(files):
+                    self.archivos.append(b / nombre)
+                    self._rel[b / nombre] = rb + (nombre,)
         self.es_carpeta = set(self.carpetas)
         self.es_archivo = set(self.archivos)
 
@@ -404,6 +434,8 @@ def auditar(raiz: Path) -> Informe:
     # Aviso, no falla: el auditor no sabe qué hay adentro, pero no lo calla.
     ilegibles = [f"{p.relative_to(raiz) if p != raiz else '.'} — sin permiso de lectura; "
                  "su contenido no se auditó" for p in arbol.ilegibles]
+    ilegibles += [f"{p.relative_to(raiz)} — enlace a la raíz del taller, a la carpeta "
+                  "personal o a un ancestro: no se recorrió" for p in arbol.no_seguidos]
     carpetas = len(arbol.carpetas) + 1
     inf.anota("Carpetas que se pudieron leer", carpetas - len(ilegibles), carpetas,
               ilegibles, critico=False)
